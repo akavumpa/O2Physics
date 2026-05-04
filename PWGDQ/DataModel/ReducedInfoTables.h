@@ -67,6 +67,9 @@ DECLARE_SOA_COLUMN(NTPCoccupMeanTimeShortC, nTPCoccupMeanTimeShortC, float);    
 DECLARE_SOA_COLUMN(NTPCoccupMedianTimeShortA, nTPCoccupMedianTimeShortA, float); //!  TPC pileup median time on A side (short time range)
 DECLARE_SOA_COLUMN(NTPCoccupMedianTimeShortC, nTPCoccupMedianTimeShortC, float); //!  TPC pileup median time on C side (short time range)
 
+DECLARE_SOA_COLUMN(Spherocity, spherocity, float);           //! transverse spherocity
+DECLARE_SOA_COLUMN(SpherocityPtWeighted, spherocityPtWeighted, float); //! pT-weighted transverse spherocity// namespace reducedevent
+
 // Columns declared to guarantee the backward compatibility of the tables
 DECLARE_SOA_COLUMN(QvecBPosRe, qvecBPosRe, float);
 DECLARE_SOA_COLUMN(QvecBPosIm, qvecBPosIm, float);
@@ -144,6 +147,13 @@ DECLARE_SOA_TABLE_VERSIONED(ReducedEventsExtended_001, "AOD", "REEXTENDED", 1, /
                             cent::CentFT0C, cent::CentFT0A, cent::CentFT0M);
 
 using ReducedEventsExtended = ReducedEventsExtended_001;
+
+// In ReducedInfoTables.h, add this after the ReducedEventsExtended declaration
+DECLARE_SOA_TABLE(ReducedEventsSpherocity, "AOD", "RESPHEROCITY",
+                  reducedevent::Spherocity,
+                  reducedevent::SpherocityPtWeighted);
+
+using ReducedEventSphero = ReducedEventsSpherocity::iterator;
 
 DECLARE_SOA_TABLE(ReducedEventsMultPV_000, "AOD", "REMULTPV", //!  Multiplicity information for primary vertex
                   mult::MultNTracksHasITS, mult::MultNTracksHasTPC, mult::MultNTracksHasTOF, mult::MultNTracksHasTRD,

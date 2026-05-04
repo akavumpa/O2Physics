@@ -453,6 +453,10 @@ void VarManager::SetDefaultVarNames()
   fgVariableUnits[kMultDimuonsME] = "";
   fgVariableNames[kCentFT0C] = "Centrality FT0C";
   fgVariableUnits[kCentFT0C] = "%";
+  fgVariableNames[kSpherocity] = "Spherocity"; // transverse spherocity
+  fgVariableUnits[kSpherocity] = "";
+  fgVariableNames[kSpherocityPtWeighted] = "SpherocityPtWeighted"; // pT-weighted transverse spherocity
+  fgVariableUnits[kSpherocityPtWeighted] = "";
   fgVariableNames[kMCEventGeneratorId] = "MC Generator ID";
   fgVariableNames[kMCEventSubGeneratorId] = "MC SubGenerator ID";
   fgVariableNames[kMCVtxX] = "MC Vtx X";
@@ -1592,6 +1596,8 @@ void VarManager::SetDefaultVarNames()
   fgVarNamesMap["kVtxChi2"] = kVtxChi2;
   fgVarNamesMap["kCentVZERO"] = kCentVZERO;
   fgVarNamesMap["kCentFT0C"] = kCentFT0C;
+  fgVarNamesMap["kSpherocity"] = kSpherocity; // transverse spherocity
+  fgVarNamesMap["kSpherocityPtWeighted"] = kSpherocityPtWeighted; // pT-weighted transverse spherocity
   fgVarNamesMap["kCentFT0A"] = kCentFT0A;
   fgVarNamesMap["kCentFT0M"] = kCentFT0M;
   fgVarNamesMap["kMultTPC"] = kMultTPC;

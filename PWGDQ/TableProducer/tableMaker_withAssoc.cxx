@@ -170,6 +170,7 @@ struct TableMaker {
   Produces<ReducedEvents> event;
   Produces<ReducedEventsExtended> eventExtended;
   Produces<ReducedEventsVtxCov> eventVtxCov;
+  Produces<ReducedEventsSpherocity> eventSpherocity; // Achu-Changes
   Produces<ReducedEventsInfo> eventInfo;
   Produces<ReducedZdcs> zdc;
   Produces<ReducedFITs> fit;
@@ -289,6 +290,16 @@ struct TableMaker {
     Configurable<float> fTPCLongFuture{"cfgTPCLongFuture", 100.0f, "Time in long future to look for occupancy (micro-seconds)"};
     Configurable<bool> fExcludeShort{"cfgTPCExcludeShort", true, "Exclude short term from long term occupancy (micro-seconds)"};
   } fConfigVariousOptions;
+
+  // Spherocity configurables
+  struct : ConfigurableGroup {
+    Configurable<float> fConfigSpherocityPtMin{"cfgSpherocityPtMin", 0.15f, "Min pT for spherocity calculation"};
+    Configurable<float> fConfigSpherocityPtMax{"cfgSpherocityPtMax", 10.0f, "Max pT for spherocity calculation"};
+    Configurable<float> fConfigSpherocityEtaMin{"cfgSpherocityEtaMin", -0.8f, "Min eta for spherocity calculation"};
+    Configurable<float> fConfigSpherocityEtaMax{"cfgSpherocityEtaMax", 0.8f, "Max eta for spherocity calculation"};
+    Configurable<int> fConfigSpherocityMinMult{"cfgSpherocityMinMult", 5, "Min multiplicity for spherocity calculation"};
+    Configurable<bool> fConfigSpherocityUsePtWeight{"cfgSpherocityUsePtWeight", false, "Use pT weighting for spherocity"};
+  } fConfigSpherocity;
 
   Service<o2::ccdb::BasicCCDBManager> fCCDB;
   o2::ccdb::CcdbApi fCCDBApi;
@@ -849,14 +860,20 @@ struct TableMaker {
     return mu;
   }
 
-  template <uint32_t TEventFillMap, typename TEvents, typename TBCs,
-            typename TZdcs, typename TFt0s, typename TFv0as, typename TFdds>
+  template <uint32_t TEventFillMap, uint32_t TTrackFillMap, typename TEvents, typename TBCs,
+            typename TZdcs, typename TFt0s, typename TFv0as, typename TFdds, typename TTrackAssoc, typename TTracks>
   void skimCollisions(TEvents const& collisions, TBCs const& bcs, TZdcs const& /*zdcs*/,
-                      TFt0s const& ft0s, TFv0as const& fv0as, TFdds const& fdds)
+                      TFt0s const& ft0s, TFv0as const& fv0as, TFdds const& fdds,
+                      TTrackAssoc const& trackAssocs, TTracks const& tracksBarrel)
   {
     // Skim collisions
     // NOTE: So far, collisions are filtered based on the user specified analysis cuts AND the filterPP or Zorro event filter.
     //      The collision-track associations which point to an event that is not selected for writing are discarded!
+    LOGF(info, "=== skimCollisions CALLED ===");
+    LOGF(info, "TEventFillMap = %u", TEventFillMap);
+    LOGF(info, "TTrackFillMap = %u", TTrackFillMap);
+    LOGF(info, "TTrackFillMap is zero: %s", TTrackFillMap == 0 ? "TRUE" : "FALSE");
+    LOGF(info, "Number of collisions = %d", static_cast<int>(collisions.size()));
 
     VarManager::FillTimeFrame(collisions);
     fCollIndexMap.clear();
@@ -1034,6 +1051,77 @@ struct TableMaker {
       }
       (reinterpret_cast<TH2D*>(fStatsList->At(kStatsEvent)))->Fill(3.0, static_cast<float>(o2::aod::evsel::kNsel));
 
+      // Calculate spherocity for this collision
+      float spherocityValue = -1.0f;
+      float spherocityPtWeighted = -1.0f;
+
+      if constexpr (static_cast<bool>(TTrackFillMap)) {
+        // DIAGNOSTIC: Check table sizes
+        LOGF(info, "=== skimCollisions DIAGNOSTIC ===");
+        LOGF(info, "Total collisions: %d", static_cast<int>(collisions.size()));
+        LOGF(info, "Total tracksBarrel: %d", static_cast<int>(tracksBarrel.size()));
+        LOGF(info, "Total trackAssocs: %d", static_cast<int>(trackAssocs.size()));
+        LOGF(info, "================================");
+
+        LOGF(info, ">>> Collision %d: TTrackFillMap check PASSED", collision.globalIndex());
+
+        auto groupedTrackIndices = trackAssocs.sliceBy(trackIndicesPerCollision, collision.globalIndex());
+        LOGF(info, ">>> Collision %d: groupedTrackIndices.size() = %d",
+             collision.globalIndex(), static_cast<int>(groupedTrackIndices.size()));
+
+        if (static_cast<int>(groupedTrackIndices.size()) >= fConfigSpherocity.fConfigSpherocityMinMult) {
+          LOGF(info, ">>> Collision %d: PASSED multiplicity check, collecting tracks...",
+               collision.globalIndex());
+
+          std::vector<typename std::decay_t<decltype(tracksBarrel.begin())>> trackVec;
+          trackVec.reserve(groupedTrackIndices.size());
+
+          int validTracks = 0;
+          for (auto const& assoc : groupedTrackIndices) {
+            if (assoc.trackId() < tracksBarrel.size()) {
+              auto track = tracksBarrel.rawIteratorAt(assoc.trackId());
+              trackVec.push_back(track);
+              validTracks++;
+            }
+          }
+
+          LOGF(info, ">>> Collision %d: Collected %d valid tracks",
+               collision.globalIndex(), validTracks);
+
+          if (validTracks >= fConfigSpherocity.fConfigSpherocityMinMult) {
+            // Calculate unweighted spherocity
+            spherocityValue = VarManager::CalculateSpherocity(
+              trackVec,
+              fConfigSpherocity.fConfigSpherocityPtMin,
+              fConfigSpherocity.fConfigSpherocityPtMax,
+              fConfigSpherocity.fConfigSpherocityEtaMin,
+              fConfigSpherocity.fConfigSpherocityEtaMax,
+              fConfigSpherocity.fConfigSpherocityMinMult,
+              false);
+
+            // Calculate pT-weighted spherocity
+            spherocityPtWeighted = VarManager::CalculateSpherocity(
+              trackVec,
+              fConfigSpherocity.fConfigSpherocityPtMin,
+              fConfigSpherocity.fConfigSpherocityPtMax,
+              fConfigSpherocity.fConfigSpherocityEtaMin,
+              fConfigSpherocity.fConfigSpherocityEtaMax,
+              fConfigSpherocity.fConfigSpherocityMinMult,
+              true);
+
+            LOGF(info, "Event %d: Spherocity = %.3f, pT-weighted = %.3f, nTracks = %d",
+                 collision.globalIndex(), spherocityValue, spherocityPtWeighted, validTracks);
+          }
+        }
+      }
+
+      // CRITICAL: Fill VarManager::fgValues so histograms can be filled!
+      VarManager::fgValues[VarManager::kSpherocity] = spherocityValue;
+      VarManager::fgValues[VarManager::kSpherocityPtWeighted] = spherocityPtWeighted;
+      LOGF(info, "Filled VarManager: Spherocity = %.3f, pT-weighted = %.3f",
+           VarManager::fgValues[VarManager::kSpherocity],
+           VarManager::fgValues[VarManager::kSpherocityPtWeighted]);
+
       fHistMan->FillHistClass("Event_AfterCuts", VarManager::fgValues);
 
       // create the event tables
@@ -1059,6 +1147,8 @@ struct TableMaker {
       eventExtended(bc.globalBC(), collision.alias_raw(), collision.selection_raw(), bc.timestamp(), VarManager::fgValues[VarManager::kCentVZERO],
                     multTPC, multFV0A, multFV0C, multFT0A, multFT0C, multFDDA, multFDDC, multZNA, multZNC, multTracklets, multTracksPV, centFT0C, centFT0A, centFT0M);
       eventVtxCov(collision.covXX(), collision.covXY(), collision.covXZ(), collision.covYY(), collision.covYZ(), collision.covZZ(), collision.chi2());
+      eventSpherocity(spherocityValue, spherocityPtWeighted);
+
       eventInfo(collision.globalIndex());
       if constexpr ((TEventFillMap & VarManager::ObjTypes::Zdc) > 0) {
         if constexpr ((TEventFillMap & VarManager::ObjTypes::RapidityGapFilter) > 0) {
@@ -1599,8 +1689,9 @@ struct TableMaker {
     event.reserve(collisions.size());
     eventExtended.reserve(collisions.size());
     eventVtxCov.reserve(collisions.size());
+    eventSpherocity.reserve(collisions.size()); // ADD THIS LINE//Achu-Changes
 
-    skimCollisions<TEventFillMap>(collisions, bcs, zdcs, ft0s, fv0as, fdds);
+    skimCollisions<TEventFillMap, TTrackFillMap>(collisions, bcs, zdcs, ft0s, fv0as, fdds, trackAssocs, tracksBarrel);
     if (fCollIndexMap.size() == 0) {
       return;
     }
